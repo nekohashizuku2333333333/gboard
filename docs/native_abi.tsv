@@ -1,0 +1,132 @@
+name	signature	ghidra_addr	file_vaddr	size	vtable_offsets
+nativeCreateEngineFactory	()J	011c92a0	0x10c92a0	40	
+nativeDeleteEngineFactory	(J)V	00b0cf20	0xa0cf20	28	
+nativeGetDataManager	(J)J	011c92c8	0x10c92c8	48	0x28
+nativeGetSettingManager	(J)J	011c92f8	0x10c92f8	48	0x30
+nativeCreateEngine	(JLjava/lang/String;Ljava/lang/String;)J	011c9328	0x10c9328	164	
+nativeCreateMutableDictionaryAccessor	(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)J	011c93cc	0x10c93cc	224	0x18
+nativeShouldMigrateUserDictionary	(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z	011c94ac	0x10c94ac	208	0x38
+nativeMigrateUserDictionary	(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z	011c957c	0x10c957c	364	0x40
+nativeEnrollDataFile	(JLjava/lang/String;ILjava/lang/String;)Z	011c98e8	0x10c98e8	224	
+nativeEnrollDataFd	(JLjava/lang/String;ILjava/io/FileDescriptor;II)Z	011c9a50	0x10c9a50	196	
+nativeEnrollBuiltInData	(JLjava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z	011c9b14	0x10c9b14	372	
+nativeEnrollEmptyData	(JLjava/lang/String;I)Z	011c9d80	0x10c9d80	156	
+nativeWithdrawData	(JLjava/lang/String;)Z	011c96e8	0x10c96e8	88	0x30
+nativeWithdrawDataScheme	(J[B)Z	011c9740	0x10c9740	212	0x6f0,0x558,0x38,0x6f8
+nativeEnrollDataScheme	(J[B)Z	011c9814	0x10c9814	212	0x6f0,0x558,0x18,0x6f8
+nativeEnrollBuiltInDataScheme	(JLjava/lang/String;Ljava/lang/String;)Z	011c9c88	0x10c9c88	248	0x18
+nativeEnrollMutableDictFd	(JLjava/lang/String;ILjava/io/FileDescriptor;III)Z	011c9e1c	0x10c9e1c	312	
+nativeEnrollEmptyMutableDict	(JLjava/lang/String;II)Z	011c9f54	0x10c9f54	264	0x10
+nativeInstallDataInStorage	(J[B)Z	011ca05c	0x10ca05c	212	0x6f0,0x558,0x20,0x6f8
+nativeGetTokenCategoryFromDataId	(JLjava/lang/String;)I	011ca130	0x10ca130	92	
+nativeLoadBuiltInSettingScheme	(JLjava/lang/String;Ljava/lang/String;)[B	011ca18c	0x10ca18c	236	0x580,0x680
+nativeEnrollSettingScheme	(JLjava/lang/String;Ljava/lang/String;[B)Z	011ca278	0x10ca278	316	0x6f0,0x558,0x18,0x6f8
+nativeRefreshData	(J)V	011ca3b4	0x10ca3b4	28	0x10
+nativeResetUserId	(JLjava/lang/String;)V	011ca3d0	0x10ca3d0	88	0x18
+nativeBeginSession	(J[B)V	011ca588	0x10ca588	184	0x6f0,0x558,0x6f8,0x30
+nativeGetAllPendingMetrics	()[B	011ca428	0x10ca428	80	
+nativeHandleInputContext	(J[B)V	011ca640	0x10ca640	192	0x6f0,0x558,0x6f8,0x20
+nativeFinishSession	(J[B)V	011ca700	0x10ca700	184	0x6f0,0x558,0x6f8,0x28
+nativeAppend	(J[Lcom/google/android/apps/inputmethod/libs/hmm/ScoredInput;I)I	011ca7b8	0x10ca7b8	180	0x38
+nativeAddInputEdge	(JIILcom/google/android/apps/inputmethod/libs/hmm/ScoredInput;I)I	011cab0c	0x10cab0c	232	0x2f8,0x330,0x58
+nativeBulkInputTouchData	(J[BLcom/google/android/apps/inputmethod/libs/hmm/Range;)Lcom/google/android/apps/inputmethod/libs/hmm/Range;	0098a43c	0x88a43c	8	
+nativeSetKeyboardLayout	(J[B)Z	00bab30c	0xaab30c	8	
+nativeBulkInputWithNativePointer	(JJLcom/google/android/apps/inputmethod/libs/hmm/Range;)Lcom/google/android/apps/inputmethod/libs/hmm/Range;	011cabf4	0x10cabf4	232	0x48
+nativeBulkInputWithHandwritingLatticeNativePointer	(JJLcom/google/android/apps/inputmethod/libs/hmm/Range;[I)Lcom/google/android/apps/inputmethod/libs/hmm/Range;	011cacdc	0x10cacdc	552	0x6f0,0x558,0x6f8
+nativeBulkInputWithTargetWords	(J[Lcom/google/android/apps/inputmethod/libs/hmm/ScoredInput;Lcom/google/android/apps/inputmethod/libs/hmm/Range;)Lcom/google/android/apps/inputmethod/libs/hmm/Range;	011caf04	0x10caf04	1144	0x50
+nativeSetSeparator	(JII)Z	011cb37c	0x10cb37c	52	0x78
+nativeGetSeparator	(JI)I	011cb3b0	0x10cb3b0	32	0x80
+nativeDelete	(JLcom/google/android/apps/inputmethod/libs/hmm/Range;)Z	011cb3d0	0x10cb3d0	116	0x88
+nativeSelectRange	(JLcom/google/android/apps/inputmethod/libs/hmm/Range;)Z	011cb444	0x10cb444	116	0x90
+nativeReset	(J)V	011cb4b8	0x10cb4b8	28	0xa0
+nativeGetDecodingRange	(J)Lcom/google/android/apps/inputmethod/libs/hmm/Range;	011cb4d4	0x10cb4d4	48	0xb8
+nativeGetConvertedSegmentsRange	(J)Lcom/google/android/apps/inputmethod/libs/hmm/Range;	011cb504	0x10cb504	48	0xc0
+nativeGetSegmentCount	(J)I	011cb534	0x10cb534	28	
+nativeGetSegment	(JI)J	011cb550	0x10cb550	44	0xd0
+nativeIsSegmentConverted	(JJ)Z	011cb57c	0x10cb57c	48	0xd8
+nativeIsSegmentConvertible	(JJ)Z	011cb5ac	0x10cb5ac	48	0xe0
+nativeIsSegmentTargeted	(JJ)Z	011cb5dc	0x10cb5dc	48	0xe8
+nativeIsSegmentTokenFullyMatched	(JJ)Z	011cb60c	0x10cb60c	48	0xf0
+nativeGetSegmentRange	(JJ)Lcom/google/android/apps/inputmethod/libs/hmm/Range;	011cb63c	0x10cb63c	48	0xf8
+nativeGetSegmentConvertedString	(JJ)Ljava/lang/String;	011cb66c	0x10cb66c	92	0x100
+nativeGetSegmentTokenCount	(JJ)I	011cb6c8	0x10cb6c8	32	0x108
+nativeGetSegmentToken	(JJI)J	011cb6e8	0x10cb6e8	48	0x110
+nativeIsTokenSelected	(JJ)Z	011cb718	0x10cb718	48	0x118
+nativeGetTokenRange	(JJ)Lcom/google/android/apps/inputmethod/libs/hmm/Range;	011cb748	0x10cb748	48	0x120
+nativeGetTokenString	(JJ)Ljava/lang/String;	011cb778	0x10cb778	92	0x128
+nativeGetTokenInputType	(JJ)I	011cb7d4	0x10cb7d4	32	0x130
+nativeGetTokenConfidentString	(JJ)Ljava/lang/String;	011cb7f4	0x10cb7f4	92	0x138
+nativeIsTokenConfident	(JJ)Z	011cb850	0x10cb850	48	0x140
+nativeGetTokenNormalizedString	(JJ)Ljava/lang/String;	011cb880	0x10cb880	92	0x148
+nativeGetTokenLanguage	(JJ)I	011cb8dc	0x10cb8dc	32	0x158
+nativeGetTokenCategory	(JJ)I	011cb8fc	0x10cb8fc	32	0x150
+nativeGetTokenInputUnitCount	(JJ)I	011cb91c	0x10cb91c	32	0x160
+nativeGetTokenInputUnit	(JJI)J	011cb93c	0x10cb93c	48	0x168
+nativeGetInputUnitRange	(JJ)Lcom/google/android/apps/inputmethod/libs/hmm/Range;	011cb96c	0x10cb96c	48	0x170
+nativeGetInputUnitString	(JJ)Ljava/lang/String;	011cb99c	0x10cb99c	92	0x178
+nativeGetInputUnitConfidentString	(JJ)Ljava/lang/String;	011cb9f8	0x10cb9f8	92	0x180
+nativeIsInputUnitConfident	(JJ)Z	011cba54	0x10cba54	48	0x188
+nativeIsInputUnitEmpty	(JJ)Z	011cba84	0x10cba84	52	
+nativeFillTokenCandidateList	(JLcom/google/android/apps/inputmethod/libs/hmm/Range;)Z	011cbab8	0x10cbab8	116	0x198
+nativeGetTokenCandidateCount	(J)I	011cbb2c	0x10cbb2c	28	0x1a0
+nativeGetTokenCandidateString	(JI)Ljava/lang/String;	011cbb48	0x10cbb48	96	0x1a8
+nativeGetTokenCandidateRange	(JI)Lcom/google/android/apps/inputmethod/libs/hmm/Range;	011cbba8	0x10cbba8	52	0x1b0
+nativeSelectTokenCandidate	(JI)Z	011cbbdc	0x10cbbdc	48	0x1b8
+nativeSelectTokens	(J[J)I	011cbc0c	0x10cbc0c	324	0x6f0,0x558,0x6f8,0x1c0
+nativeFillCandidateList	(JLcom/google/android/apps/inputmethod/libs/hmm/Range;)Z	011cbd50	0x10cbd50	116	0x1c8
+nativeGetCandidateCount	(J)I	011cbdc4	0x10cbdc4	48	0x1d0
+nativeSelectCandidate	(JI)Z	011cbdf4	0x10cbdf4	48	0x1d8
+nativeDeleteCandidate	(JI)Z	011cbe24	0x10cbe24	48	0x1e0
+nativeHighlightCandidate	(JI)Z	011cbe54	0x10cbe54	48	0x1f0
+nativeGetHighlightedCandidate	(J)I	011cbe84	0x10cbe84	28	0x1f8
+nativeGetCandidateString	(JI)Ljava/lang/String;	011cbea0	0x10cbea0	96	0x200
+nativeGetCandidateRange	(JI)Lcom/google/android/apps/inputmethod/libs/hmm/Range;	011cbf00	0x10cbf00	52	0x220
+nativeGetCandidateType	(JI)I	011cbf34	0x10cbf34	32	0x228
+nativeIsCandidateDuplicated	(JI)Z	011cbf54	0x10cbf54	48	0x230
+nativeIsCandidateCorrected	(JI)Z	011cbf84	0x10cbf84	48	0x1e8
+nativeGetCandidateTokenCount	(JI)I	011cbfb4	0x10cbfb4	32	0x238
+nativeGetCandidateTokenFeatureCount	(JII)I	011cbfd4	0x10cbfd4	36	0x240
+nativeGetCandidateToken	(JII)J	011cbff8	0x10cbff8	48	0x248
+nativeGetCandidatePrimaryDataSource	(JI)I	011cc028	0x10cc028	32	0x250
+nativeGetCandidateDataSourceMask	(JI)I	011cc048	0x10cc048	32	
+nativeIsCandidateFromSingleDataSource	(JI)Z	011cc068	0x10cc068	48	0x260
+nativeGetDataSourceIndex	(JLjava/lang/String;)I	011cc098	0x10cc098	100	0x268
+nativeFillPredictionCandidateList	(J)Z	011cc0fc	0x10cc0fc	52	0x278
+nativeGetPredictionCandidateCount	(J)I	011cc130	0x10cc130	28	0x280
+nativeGetPredictionCandidateString	(JI)Ljava/lang/String;	011cc14c	0x10cc14c	96	0x288
+nativeGetPredictionCandidateDataSourceMask	(JI)I	011cc1ac	0x10cc1ac	32	0x290
+nativeGetPredictionCandidateContextLength	(JI)I	011cc1cc	0x10cc1cc	32	0x298
+nativeGetPredictionCandidateContextWordCount	(JI)I	011cc1ec	0x10cc1ec	32	0x2a0
+nativeUnconvertSegments	(JLcom/google/android/apps/inputmethod/libs/hmm/Range;)Z	011cc20c	0x10cc20c	116	0x2a8
+nativeUnselectTokens	(JLcom/google/android/apps/inputmethod/libs/hmm/Range;)Z	011cc280	0x10cc280	116	0x2b0
+nativeDumpSourceTokenSequenceVectorPointer	(JJ)Ljava/lang/String;	011cc2f4	0x10cc2f4	476	
+nativeExportAllEntries	(J)[Lcom/google/android/apps/inputmethod/libs/hmm/MutableDictionaryAccessor$Entry;	011cc4d0	0x10cc4d0	144	0x20
+nativeExportAllModifiedEntries	(J)[Lcom/google/android/apps/inputmethod/libs/hmm/MutableDictionaryAccessor$Entry;	011cc7a8	0x10cc7a8	144	0x20
+nativePersist	(JLjava/lang/String;)Z	011cc838	0x10cc838	132	0x28
+nativeCompact	(JI)Z	011cc8bc	0x10cc8bc	56	0x30
+nativeGetDictionarySize	(J)I	011cc8f4	0x10cc8f4	48	0x38
+nativeGetDictionaryCount	(J)I	011cc924	0x10cc924	48	0x40
+nativeGetLastSyncTime	(J)J	011cc954	0x10cc954	28	0x48
+nativeSetLastSyncTime	(JJ)V	011cc970	0x10cc970	32	0x50
+nativeInsertOrUpdate	(J[Ljava/lang/String;[ILjava/lang/String;IZZ)Z	011cc990	0x10cc990	372	0x58
+nativeInsertOrUpdate	(J[Ljava/lang/String;Ljava/lang/String;IZ)Z	011ccca4	0x10ccca4	288	0x60
+nativeInsertOrUpdate	(JLjava/lang/String;IZ)Z	011ccdc4	0x10ccdc4	164	0x68
+nativeAddCount	(J[Ljava/lang/String;[ILjava/lang/String;IZ)Z	011cce68	0x10cce68	328	0x70
+nativeAddCount	(J[Ljava/lang/String;Ljava/lang/String;I)Z	011ccfb0	0x10ccfb0	244	0x78
+nativeDecreaseCount	(J[Ljava/lang/String;[ILjava/lang/String;I)Z	011cd0a4	0x10cd0a4	304	0x80
+nativeDecreaseCount	(J[Ljava/lang/String;Ljava/lang/String;I)Z	011cd1d4	0x10cd1d4	244	0x88
+nativeMarkAsUnmodified	(J[Ljava/lang/String;[ILjava/lang/String;)Z	011cd2c8	0x10cd2c8	240	0x90
+nativeMarkAsUnmodified	(J[Ljava/lang/String;Ljava/lang/String;)Z	011cd3b8	0x10cd3b8	220	0x98
+nativeRemoveByTokenAndValue	(J[Ljava/lang/String;[ILjava/lang/String;)Z	011cd494	0x10cd494	240	0xa0
+nativeRemoveByTokenAndValue	(J[Ljava/lang/String;Ljava/lang/String;)Z	011cd584	0x10cd584	220	0xa8
+nativeRemoveByValue	(JLjava/lang/String;)Z	011cd660	0x10cd660	88	0xb0
+nativeClear	(J)Z	011cd6b8	0x10cd6b8	52	0xb8
+nativeDuplicateDictionary	(J)Z	011cd6ec	0x10cd6ec	52	0xc0
+nativeNewEmptyDictionary	(J)Z	011cd720	0x10cd720	52	
+nativeStartProfiling	()V	008d0438	0x7d0438	8	
+nativeCreate	(JJLjava/lang/String;Ljava/lang/String;)J	011ce1e8	0x10ce1e8	232	
+nativeReset	(J)V	011ce2e4	0x10ce2e4	20	0x48
+nativeReloadOnDataOrSettingChanged	(J)V	011ce2d0	0x10ce2d0	20	0x10
+nativeDecode	(J[B)J	011ce458	0x10ce458	344	0x558,0x6f0,0x6f8,0x28
+nativeGetFilteredResults	(J[Ljava/lang/String;)J	011ce2f8	0x10ce2f8	352	0x558,0x568,0x50
+nativeSetKeyboardLayout	(JI[B)Z	011ce5b0	0x10ce5b0	312	0x558,0x6f0,0x20,0x6f8

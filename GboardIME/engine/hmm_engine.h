@@ -13,6 +13,10 @@ extern "C" {
 // Returns true on success.
 bool hmm_engine_init(const char *so_path, const char *pack_dir);
 
+// Native engine object (C++ vtable) used by the direct-ABI migration.
+// Exposed for tests/tools; NULL before a successful init.
+void *hmm_engine_native_handle(void);
+
 // Initialize with user data directory for persistent user dictionary.
 // user_data_dir: path to writable directory for user dictionary files
 //                (e.g. ~/Library/Application Support/GboardIME/).

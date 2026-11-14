@@ -352,13 +352,19 @@ uint8_t __sF[3 * BIONIC_FILE_SIZE];
 static FILE *sF_map[3];  // macOS FILE* for stdin/stdout/stderr
 
 // Bionic's stdin/stdout/stderr are FILE* variables pointing into __sF.
-static FILE *bionic_stdin  = (FILE *)&__sF[0 * BIONIC_FILE_SIZE];
-static FILE *bionic_stdout = (FILE *)&__sF[1 * BIONIC_FILE_SIZE];
-static FILE *bionic_stderr = (FILE *)&__sF[2 * BIONIC_FILE_SIZE];
+// Exported under their bionic names so a Mach-O engine binds to them directly;
+// the values keep pointing at our fake __sF entries, and fixup_file() maps
+// those to the real macOS FILE*.
+#undef stdin
+#undef stdout
+#undef stderr
+FILE *stdin  = (FILE *)&__sF[0 * BIONIC_FILE_SIZE];
+FILE *stdout = (FILE *)&__sF[1 * BIONIC_FILE_SIZE];
+FILE *stderr = (FILE *)&__sF[2 * BIONIC_FILE_SIZE];
 
 static void __attribute__((constructor)) init_sF(void) {
     memset(__sF, 0, sizeof(__sF));
-    sF_map[0] = stdin; sF_map[1] = stdout; sF_map[2] = stderr;
+    sF_map[0] = __stdinp; sF_map[1] = __stdoutp; sF_map[2] = __stderrp;
 }
 
 // Detect if a FILE* is a fake Bionic __sF entry and return the real macOS FILE*.
@@ -368,8 +374,11 @@ static FILE *fixup_file(FILE *f) {
     uintptr_t base = (uintptr_t)__sF;
     if (fp >= base && fp < base + sizeof(__sF)) {
         int idx = (int)((fp - base) / BIONIC_FILE_SIZE);
-        if (idx >= 0 && idx < 3) return sF_map[idx];
-        return stderr;
+        if (idx >= 0 && idx < 3) {
+            if (!sF_map[idx]) sF_map[idx] = idx == 0 ? __stdinp : (idx == 1 ? __stdoutp : __stderrp);
+            return sF_map[idx];
+        }
+        return __stderrp;
     }
     return f;
 }
@@ -730,9 +739,9 @@ static const SymEntry s_table[] = {
     E("AStatus_deleteDescription",       stub_AStatus_deleteDescription),
 
     // stdio variables — each holds a fake Bionic __sF entry
-    E("stdin",                           &bionic_stdin),
-    E("stdout",                          &bionic_stdout),
-    E("stderr",                          &bionic_stderr),
+    E("stdin",                           &stdin),
+    E("stdout",                          &stdout),
+    E("stderr",                          &stderr),
 
     // ICU data
     E("uprv_getICUData_brkitr_char",     stub_uprv_getICUData),

@@ -2041,6 +2041,43 @@ static Quad stub_strtold_l(const char *s, char **end, locale_t loc) {
 
 #define E(name, fn) { name, (void *)(fn) }
 
+// Bionic fortified entry points used by newer Gboard builds.
+static int stub___open_2(const char *path, int flags) {
+    return open(path, flags);
+}
+static ssize_t stub___read_chk(int fd, void *buf, size_t count, size_t buflen) {
+    if (count > buflen) abort();
+    return read(fd, buf, count);
+}
+static ssize_t stub___pread_chk(int fd, void *buf, size_t count, off_t offset,
+                                size_t buflen) {
+    if (count > buflen) abort();
+    return pread(fd, buf, count, offset);
+}
+static ssize_t stub___write_chk(int fd, const void *buf, size_t count,
+                                size_t buflen) {
+    if (count > buflen) abort();
+    return write(fd, buf, count);
+}
+static char *stub___strchr_chk(const char *s, int c, size_t slen) {
+    (void)slen;
+    return strchr(s, c);
+}
+static char *stub___strrchr_chk(const char *s, int c, size_t slen) {
+    (void)slen;
+    return strrchr(s, c);
+}
+static size_t stub___strlen_chk(const char *s, size_t slen) {
+    if (!memchr(s, 0, slen)) abort();
+    return strlen(s);
+}
+static char *stub___strncpy_chk2(char *dst, const char *src, size_t n,
+                                 size_t dstlen, size_t srclen) {
+    (void)srclen;
+    if (n > dstlen) abort();
+    return strncpy(dst, src, n);
+}
+
 static const SymEntry s_abi_table[] = {
     E("fwrite",                          stub_fwrite),
     E("fread",                           stub_fread),
@@ -2090,6 +2127,14 @@ static const SymEntry s_abi_table[] = {
 
     E("syscall",                     stub_syscall),
     E("open",                        stub_open),
+    E("__open_2",                    stub___open_2),
+    E("__read_chk",                  stub___read_chk),
+    E("__pread_chk",                 stub___pread_chk),
+    E("__write_chk",                 stub___write_chk),
+    E("__strchr_chk",                stub___strchr_chk),
+    E("__strrchr_chk",               stub___strrchr_chk),
+    E("__strlen_chk",                stub___strlen_chk),
+    E("__strncpy_chk2",              stub___strncpy_chk2),
     E("fcntl",                       stub_fcntl),
     E("ioctl",                       stub_ioctl),
     E("mmap",                        linux_mmap),

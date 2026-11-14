@@ -38,6 +38,8 @@ jlong      g_sm      = 0;
 jlong      g_engine  = 0;
 jint       g_end_vertex = 0;
 
+void *hmm_engine_native_handle(void) { return (void *)(uintptr_t)g_engine; }
+
 fn_CreateFactory    g_createFactory    = NULL;
 fn_DeleteFactory    g_deleteFactory    = NULL;
 fn_GetDataManager   g_getDataManager   = NULL;

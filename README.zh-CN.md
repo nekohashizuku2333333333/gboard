@@ -188,6 +188,10 @@ clean       清理构建产物
 
 `./decompile.sh` 会把 Java 源码反编译到 `gboard_apk_source/jadx/`，供逆向分析使用。需要先 `brew install jadx`；构建时不需要这一步。默认读取 `xapk_unpacked/com.google.android.inputmethod.latin.apk`；该文件不存在时（例如 `setup.sh` 用的是普通 APK），请用 `./decompile.sh --apk /path/to/gboard.apk` 指定。
 
+### 原生 ABI 迁移（研究）
+
+`docs/native-abi-migration.md` 记录了如何用反编译结果去掉「ELF 加载器 + JNI 兼容层」：引擎的 136 个注册 native 是薄的 JNI 封送，真正实现是 C++ vtable；`docs/native_abi.tsv` 给出 131 个唯一 native 的签名与 vtable 偏移，`docs/decompiled/` 保存机器生成的反编译语料。该目录仅用于兼容性研究，不随发布包分发。
+
 ### 测试
 
 ```bash
