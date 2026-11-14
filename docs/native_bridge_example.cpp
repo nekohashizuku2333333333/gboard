@@ -12,21 +12,46 @@
 // The engine object is the same pointer returned by nativeCreateEngine's jlong.
 
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
 namespace gboard {
 
 // The engine's strings use the Android libc++ layout, not the macOS default.
-// Verified raw return for "你好": 0c e4 bd a0 e5 a5 bd 00 ... (0x0C marker).
-// The layout must be recovered from the engine's own conversion helper; this
-// adapter is deliberately explicit instead of pretending std::string matches.
+// Verified raw return for "你好": 0c e4 bd a0 e5 a5 bd 00 ...
+// 0x0c is the short-size byte (6 << 1); data starts at byte 1.
+//   even byte0: short, len = byte0 >> 1, data = b + 1
+//   odd  byte0: long,  len = *(uint32_t*)(b + 8), data = *(char**)(b + 16)
 struct AndroidString {
     alignas(8) unsigned char b[24];
 };
 
-AndroidString from_utf8(const std::string& s);   // TODO: short/long encoding
-std::string to_utf8(const AndroidString& s);     // TODO: Android layout decode
+inline AndroidString from_utf8(const std::string& s) {
+    AndroidString out{};
+    if (s.size() <= 22) {
+        out.b[0] = static_cast<unsigned char>(s.size() << 1);
+        std::memcpy(out.b + 1, s.data(), s.size());
+    } else {
+        out.b[0] = 1;  // long
+        *reinterpret_cast<std::uint32_t*>(out.b + 8) =
+            static_cast<std::uint32_t>(s.size());
+        char* data = new char[s.size() + 1];
+        std::memcpy(data, s.data(), s.size());
+        data[s.size()] = 0;
+        *reinterpret_cast<char**>(out.b + 16) = data;
+    }
+    return out;
+}
+
+inline std::string to_utf8(const AndroidString& s) {
+    if (s.b[0] & 1) {
+        std::uint32_t len = *reinterpret_cast<const std::uint32_t*>(s.b + 8);
+        const char* data = *reinterpret_cast<char* const*>(s.b + 16);
+        return std::string(data ? data : "", len);
+    }
+    return std::string(reinterpret_cast<const char*>(s.b + 1), s.b[0] >> 1);
+}
 
 struct ScoredInput {
     AndroidString input;  // 24 bytes, Android layout
@@ -88,10 +113,7 @@ bool select_candidate(Engine* e, int index) {
 std::string candidate_string(Engine* e, int index) {
     // Non-trivial return uses x8 sret; this and index are the explicit args.
     AndroidString raw = slot<AndroidString (*)(Engine*, int)>(e, 0x200)(e, index);
-    std::string s = to_utf8(raw);
-    // Raw strings carry a 0x0C correction marker; the JNI wrapper strips it.
-    if (!s.empty() && s[0] == '\f') s.erase(0, 1);
-    return s;
+    return to_utf8(raw);
 }
 
 Range candidate_range(Engine* e, int index) {

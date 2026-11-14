@@ -192,6 +192,8 @@ clean       清理构建产物
 
 `docs/native-abi-migration.md` 记录了如何用反编译结果去掉「ELF 加载器 + JNI 兼容层」：引擎的 136 个注册 native 是薄的 JNI 封送，真正实现是 C++ vtable；`docs/native_abi.tsv` 给出 131 个唯一 native 的签名与 vtable 偏移，`docs/decompiled/` 保存机器生成的反编译语料。该目录仅用于兼容性研究，不随发布包分发。
 
+逐键热路径已通过 `GboardIME/engine/gboard_native_abi.h` 直接调用 vtable；`hmm_candidates.c` 已无 JNI 调用（append、context、fill、候选读取、选择、删除、预测、segment/token、separator、reset）。初始化、数据包 enroll 与 user-dict 仍走 JNI。`./test.sh` 889 项通过。
+
 ### 测试
 
 ```bash

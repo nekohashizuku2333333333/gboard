@@ -1,6 +1,7 @@
 // Input append, candidate retrieval, selection, and reset.
 #include "hmm_internal.h"
 #include "hmm_user_dict.h"
+#include "gboard_native_abi.h"
 
 enum {
     INPUT_TYPE_SOURCE_INPUT_UNIT = 0,
@@ -83,7 +84,6 @@ static int context_language(uint32_t cp) {
 }
 
 bool hmm_engine_set_context(const char *text_before_cursor) {
-    JNI_LOCAL_FRAME();
     const unsigned char *text =
         (const unsigned char *)(text_before_cursor ? text_before_cursor : "");
     size_t byte_length = strlen((const char *)text);
@@ -154,20 +154,18 @@ static bool append_context(void) {
         char token[5] = {0};
         memcpy(token, text + pos, char_length);
 
-        jobject arr = jni_NewObjectArray(g_env, 1, NULL, NULL);
-        jobject si = jni_create_scored_input(g_env, token, 0.0f);
-        jni_SetObjectArrayElement(g_env, arr, 0, si);
-
-        jint result = 0;
+        const char *key = token;
+        int result = 0;
         CRASH_PROTECT_BEGIN()
-        result = g_append(g_env, NULL, g_engine, arr, INPUT_TYPE_TARGET_TOKEN);
+        result = gboard_engine_append((void *)(uintptr_t)g_engine, &key, 1,
+                                      INPUT_TYPE_TARGET_TOKEN);
         CRASH_PROTECT_END("nativeAppend(context)")
         if (result <= 0) {
             LOGERR("context append failed for '%s'; continuing without context",
                    token);
-            if (g_reset) {
+            if (g_engine) {
                 CRASH_PROTECT_BEGIN()
-                g_reset(g_env, NULL, g_engine);
+                gboard_engine_reset((void *)(uintptr_t)g_engine);
                 CRASH_PROTECT_END("nativeReset(context append failure)")
             }
             g_end_vertex = 0;
@@ -177,56 +175,45 @@ static bool append_context(void) {
         pos += char_length;
     }
 
-    if (g_setSeparator) {
+    if (g_engine) {
         CRASH_PROTECT_BEGIN()
-        g_setSeparator(g_env, NULL, g_engine, END_VERTEX_SENTINEL,
-                       SEPARATOR_TOKEN);
+        gboard_engine_set_separator((void *)(uintptr_t)g_engine,
+                                    END_VERTEX_SENTINEL, SEPARATOR_TOKEN);
         CRASH_PROTECT_END("nativeSetSeparator(context token)")
         if (s_context_ends_latin) {
             CRASH_PROTECT_BEGIN()
-            g_setSeparator(g_env, NULL, g_engine, END_VERTEX_SENTINEL,
-                           SEPARATOR_SEGMENT);
+            gboard_engine_set_separator((void *)(uintptr_t)g_engine,
+                                        END_VERTEX_SENTINEL, SEPARATOR_SEGMENT);
             CRASH_PROTECT_END("nativeSetSeparator(context segment)")
         }
     }
 
-    if (!g_getDecodingRange || !g_selectRange) {
-        LOGERR("context range methods unavailable; continuing without context");
-        if (g_reset) {
-            CRASH_PROTECT_BEGIN()
-            g_reset(g_env, NULL, g_engine);
-            CRASH_PROTECT_END("nativeReset(context methods unavailable)")
-        }
-        g_end_vertex = 0;
-        return true;
-    }
-
-    jobject range = NULL;
+    if (!g_engine) return true;
+    GboardRange range = { -1, -1 };
     CRASH_PROTECT_BEGIN()
-    range = g_getDecodingRange(g_env, NULL, g_engine);
+    range = gboard_engine_decoding_range((void *)(uintptr_t)g_engine);
     CRASH_PROTECT_END("nativeGetDecodingRange(context)")
-    if (!range) {
+    if (range.start < 0 && range.end < 0) {
         LOGERR("context decoding range unavailable; continuing without context");
-        if (g_reset) {
+        if (g_engine) {
             CRASH_PROTECT_BEGIN()
-            g_reset(g_env, NULL, g_engine);
+            gboard_engine_reset((void *)(uintptr_t)g_engine);
             CRASH_PROTECT_END("nativeReset(context range unavailable)")
         }
         g_end_vertex = 0;
         return true;
     }
-    int start = 0, end = 0;
-    jni_get_range(range, &start, &end);
+    int start = range.start, end = range.end;
     if (start < end || end < 0) {
-        jboolean selected = JNI_FALSE;
+        bool selected = false;
         CRASH_PROTECT_BEGIN()
-        selected = g_selectRange(g_env, NULL, g_engine, range);
+        selected = gboard_engine_select_range((void *)(uintptr_t)g_engine, range);
         CRASH_PROTECT_END("nativeSelectRange(context)")
         if (!selected) {
             LOGERR("context range selection failed; continuing without context");
-            if (g_reset) {
+            if (g_engine) {
                 CRASH_PROTECT_BEGIN()
-                g_reset(g_env, NULL, g_engine);
+                gboard_engine_reset((void *)(uintptr_t)g_engine);
                 CRASH_PROTECT_END("nativeReset(context selection failure)")
             }
             g_end_vertex = 0;
@@ -240,9 +227,8 @@ static bool append_context(void) {
 }
 
 bool hmm_engine_append(const char *pinyin_input) {
-    JNI_LOCAL_FRAME();
-    LOG("append: input='%s' g_append=%p g_engine=%lld", pinyin_input, (void*)g_append, (long long)g_engine);
-    if (!g_append || !g_engine) { LOG("append: SKIP (null)"); return false; }
+    LOG("append: input='%s' g_engine=%lld", pinyin_input, (long long)g_engine);
+    if (!g_engine) { LOG("append: SKIP (null)"); return false; }
     if (!s_settings_ready) {
         LOGERR("Cannot append: decoder settings failed to refresh");
         return false;
@@ -252,15 +238,11 @@ bool hmm_engine_append(const char *pinyin_input) {
     size_t len = strlen(pinyin_input);
     for (size_t i = 0; i < len; i++) {
         char ch[2] = { pinyin_input[i], '\0' };
-        jobject arr = jni_NewObjectArray(g_env, 1, NULL, NULL);
-        jobject si = jni_create_scored_input(g_env, ch, 1.0f);
-        jni_scored_input_set_vertices(si, (int)g_end_vertex, (int)(g_end_vertex + 1));
-        jni_SetObjectArrayElement(g_env, arr, 0, si);
 
-        jint result = 0;
+        int result = 0;
         CRASH_PROTECT_BEGIN()
-        result = g_append(g_env, NULL, g_engine, arr,
-                          INPUT_TYPE_SOURCE_INPUT_UNIT);
+        result = gboard_engine_append_one((void *)(uintptr_t)g_engine, ch,
+                                          INPUT_TYPE_SOURCE_INPUT_UNIT);
         LOGERR("nativeAppend('%c') → %d", pinyin_input[i], result);
         CRASH_PROTECT_END("nativeAppend")
         if (result > 0) {
@@ -273,58 +255,44 @@ bool hmm_engine_append(const char *pinyin_input) {
 }
 
 int hmm_engine_get_candidates_page(char **candidates, int offset, int max_count) {
-    JNI_LOCAL_FRAME();
     if (!g_engine || !candidates || offset < 0 || max_count < 1) return 0;
 
     int count = 0;
-
-    if (g_fillCandList) {
-        jobject range = jni_create_range(g_env, candidate_start_vertex(),
-                                         g_end_vertex);
-        CRASH_PROTECT_BEGIN()
-        jboolean ok = g_fillCandList(g_env, NULL, g_engine, range);
-        LOGERR("fillCandidateList → %d", ok);
-        CRASH_PROTECT_END("nativeFillCandidateList")
-    }
-
-    if (g_getCandCount) {
-        CRASH_PROTECT_BEGIN()
-        count = g_getCandCount(g_env, NULL, g_engine);
-        LOGERR("getCandidateCount → %d", count);
-        CRASH_PROTECT_END("nativeGetCandidateCount")
-    }
+    GboardRange range = { candidate_start_vertex(), g_end_vertex };
+    CRASH_PROTECT_BEGIN()
+    bool ok = gboard_engine_fill((void *)(uintptr_t)g_engine, range);
+    LOGERR("fillCandidateList → %d", ok);
+    CRASH_PROTECT_END("nativeFillCandidateList")
+    CRASH_PROTECT_BEGIN()
+    count = gboard_engine_count((void *)(uintptr_t)g_engine);
+    LOGERR("getCandidateCount → %d", count);
+    CRASH_PROTECT_END("nativeGetCandidateCount")
 
     if (offset >= count) return 0;
     int end = offset + max_count;
     if (end > count) end = count;
 
     int filled = 0;
-    if (g_getCandString) {
-        for (int i = offset; i < end; i++) {
-            jstring js = NULL;
-            CRASH_PROTECT_BEGIN()
-            js = g_getCandString(g_env, NULL, g_engine, (jint)i);
-            CRASH_PROTECT_END("nativeGetCandidateString")
-            if (js) {
-                const char *s = jni_get_string(js);
-                if (s && *s) {
-                    candidates[filled++] = strdup(s);
-                }
-            }
+    for (int i = offset; i < end; i++) {
+        char *s = NULL;
+        CRASH_PROTECT_BEGIN()
+        s = gboard_engine_string_dup((void *)(uintptr_t)g_engine, i);
+        CRASH_PROTECT_END("nativeGetCandidateString")
+        if (s && *s) {
+            candidates[filled++] = s;
+        } else {
+            free(s);
         }
     }
     return filled;
 }
 
 int hmm_engine_get_candidates(char **candidates, int max_count) {
-    JNI_LOCAL_FRAME();
     return hmm_engine_get_candidates_page(candidates, 0, max_count);
 }
 
 int hmm_engine_get_predictions(char **candidates, int max_count) {
-    JNI_LOCAL_FRAME();
-    if (!candidates || max_count < 1 || !g_fillPredictionCandList ||
-        !g_getPredictionCandCount || !g_getPredictionCandString) {
+    if (!candidates || max_count < 1 || !g_engine) {
         hmm_engine_reset();
         return 0;
     }
@@ -337,32 +305,32 @@ int hmm_engine_get_predictions(char **candidates, int max_count) {
 
     int filled = 0;
     if (s_context_end_vertex > 0) {
-        jboolean ok = JNI_FALSE;
+        bool ok = false;
         CRASH_PROTECT_BEGIN()
-        ok = g_fillPredictionCandList(g_env, NULL, g_engine);
+        ok = gboard_engine_fill_predictions((void *)(uintptr_t)g_engine);
         CRASH_PROTECT_END("nativeFillPredictionCandidateList")
 
-        jint count = 0;
+        int count = 0;
         if (ok) {
             CRASH_PROTECT_BEGIN()
-            count = g_getPredictionCandCount(g_env, NULL, g_engine);
+            count = gboard_engine_prediction_count((void *)(uintptr_t)g_engine);
             CRASH_PROTECT_END("nativeGetPredictionCandidateCount")
         }
         if (count > PREDICTION_MAX_CANDIDATES) {
             count = PREDICTION_MAX_CANDIDATES;
         }
-        for (jint i = 0; i < count && filled < max_count; i++) {
-            jstring js = NULL;
+        for (int i = 0; i < count && filled < max_count; i++) {
+            char *s = NULL;
             CRASH_PROTECT_BEGIN()
-            js = g_getPredictionCandString(g_env, NULL, g_engine, i);
+            s = gboard_engine_prediction_string_dup((void *)(uintptr_t)g_engine, i);
             CRASH_PROTECT_END("nativeGetPredictionCandidateString")
-            const char *s = js ? jni_get_string(js) : NULL;
-            if (!s || !*s) continue;
+            if (!s || !*s) { free(s); continue; }
             bool duplicate = false;
             for (int j = 0; j < filled && !duplicate; j++) {
                 duplicate = strcmp(candidates[j], s) == 0;
             }
-            if (!duplicate) candidates[filled++] = strdup(s);
+            if (!duplicate) candidates[filled++] = s;
+            else free(s);
         }
         LOG("predictions for '%s' → %d", s_context, filled);
     }
@@ -372,119 +340,96 @@ int hmm_engine_get_predictions(char **candidates, int max_count) {
 }
 
 int hmm_engine_get_candidate_consumed(int index) {
-    JNI_LOCAL_FRAME();
-    if (!g_getCandRange || !g_engine) return -1;
-    jobject range = NULL;
+    if (!g_engine) return -1;
+    GboardRange range;
     CRASH_PROTECT_BEGIN()
-    range = g_getCandRange(g_env, NULL, g_engine, (jint)index);
+    range = gboard_engine_range((void *)(uintptr_t)g_engine, index);
     CRASH_PROTECT_END("nativeGetCandidateRange")
-    if (!range) return -1;
-    int start_v = 0, end_v = 0;
-    jni_get_range(range, &start_v, &end_v);
+    int start_v = range.start, end_v = range.end;
     LOG("getCandidateRange(%d) → start=%d end=%d (g_end_vertex=%d)", index, start_v, end_v, g_end_vertex);
     int consumed = end_v - s_context_end_vertex;
     return consumed >= 0 ? consumed : -1;
 }
 
 int hmm_engine_get_separator(int vertex_index) {
-    JNI_LOCAL_FRAME();
-    if (!g_getSeparator || !g_engine) return -1;
-    jint result = 0;
+    if (!g_engine) return -1;
+    int result = -1;
     CRASH_PROTECT_BEGIN()
-    result = g_getSeparator(g_env, NULL, g_engine,
-                            (jint)(s_context_end_vertex + vertex_index));
+    result = gboard_engine_get_separator((void *)(uintptr_t)g_engine,
+                                         s_context_end_vertex + vertex_index);
     CRASH_PROTECT_END("nativeGetSeparator")
-    return (int)result;
+    return result;
 }
 
 bool hmm_engine_set_separator(int vertex_index, int separator_type) {
-    JNI_LOCAL_FRAME();
-    if (!g_setSeparator || !g_engine) return false;
-    jboolean result = JNI_FALSE;
+    if (!g_engine) return false;
+    bool result = false;
     CRASH_PROTECT_BEGIN()
-    result = g_setSeparator(g_env, NULL, g_engine,
-                            (jint)(s_context_end_vertex + vertex_index),
-                            (jint)separator_type);
+    result = gboard_engine_set_separator((void *)(uintptr_t)g_engine,
+                                         s_context_end_vertex + vertex_index,
+                                         separator_type);
     CRASH_PROTECT_END("nativeSetSeparator")
-    return result == JNI_TRUE;
+    return result;
 }
 
 int hmm_engine_get_segmented_pinyin(char *text, int max_bytes) {
-    JNI_LOCAL_FRAME();
-    if (!text || max_bytes < 1) return 0;
+    if (!text || max_bytes < 1 || !g_engine) return 0;
     text[0] = '\0';
-    if (!g_getSegmentCount || !g_getSegment || !g_getSegmentRange ||
-        !g_getSegmentTokenCount || !g_getSegmentToken || !g_getTokenString) {
-        return 0;
-    }
+    void *engine = (void *)(uintptr_t)g_engine;
 
-    jint segCount = 0;
+    int segCount = 0;
     CRASH_PROTECT_BEGIN()
-    segCount = g_getSegmentCount(g_env, NULL, g_engine);
+    segCount = gboard_engine_segment_count(engine);
     CRASH_PROTECT_END("getSegmentCount")
 
     int written = 0;
     bool has_token = false;
     int prev_language = -1;
-    const HmmUserDictNatives *lang_natives = hmm_get_user_dict_natives();
-    for (jint s = 0; s < segCount && written < max_bytes - 1; s++) {
-        jlong seg = 0;
+    for (int s = 0; s < segCount && written < max_bytes - 1; s++) {
+        void *seg = NULL;
         CRASH_PROTECT_BEGIN()
-        seg = g_getSegment(g_env, NULL, g_engine, s);
+        seg = gboard_engine_segment(engine, s);
         CRASH_PROTECT_END("getSegment")
         if (!seg) continue;
 
-        jobject range = NULL;
+        GboardRange range;
         CRASH_PROTECT_BEGIN()
-        range = g_getSegmentRange(g_env, NULL, g_engine, seg);
+        range = gboard_engine_segment_range(engine, seg);
         CRASH_PROTECT_END("getSegmentRange")
-        if (!range) continue;
-
-        int start_v = 0, end_v = 0;
-        jni_get_range(range, &start_v, &end_v);
+        int start_v = range.start, end_v = range.end;
         if (start_v < s_context_end_vertex) continue;
-        // Without the native check, converted segments end at the
-        // last selection.
-        if (!g_isSegmentConverted && start_v < candidate_start_vertex()) {
-            continue;
-        }
-        if (g_isSegmentConverted) {
-            jboolean converted = JNI_FALSE;
-            CRASH_PROTECT_BEGIN()
-            converted = g_isSegmentConverted(g_env, NULL, g_engine, seg);
-            CRASH_PROTECT_END("nativeIsSegmentConverted")
-            if (converted) continue;
-        }
-
-        jint tokenCount = 0;
+        if (start_v < candidate_start_vertex()) continue;
+        bool converted = false;
         CRASH_PROTECT_BEGIN()
-        tokenCount = g_getSegmentTokenCount(g_env, NULL, g_engine, seg);
+        converted = gboard_engine_segment_converted(engine, seg);
+        CRASH_PROTECT_END("nativeIsSegmentConverted")
+        if (converted) continue;
+
+        int tokenCount = 0;
+        CRASH_PROTECT_BEGIN()
+        tokenCount = gboard_engine_segment_token_count(engine, seg);
         CRASH_PROTECT_END("getSegmentTokenCount")
 
-        for (jint t = 0; t < tokenCount && written < max_bytes - 1; t++) {
-            jlong token = 0;
+        for (int t = 0; t < tokenCount && written < max_bytes - 1; t++) {
+            void *token = NULL;
             CRASH_PROTECT_BEGIN()
-            token = g_getSegmentToken(g_env, NULL, g_engine, seg, t);
+            token = gboard_engine_segment_token(engine, seg, t);
             CRASH_PROTECT_END("getSegmentToken")
             if (!token) continue;
 
-            jstring js = NULL;
+            char *token_text = NULL;
             CRASH_PROTECT_BEGIN()
-            js = g_getTokenString(g_env, NULL, g_engine, token);
+            token_text = gboard_engine_token_string_dup(engine, token);
             CRASH_PROTECT_END("nativeGetTokenString")
-            const char *token_text = js ? jni_get_string(js) : NULL;
             if (!token_text || !token_text[0]) {
-                jni_release_string(js);
+                free(token_text);
                 continue;
             }
 
-            /* English tokens are single letters; keep a word contiguous. */
             int language = -1;
-            if (lang_natives && lang_natives->getTokenLanguage) {
-                CRASH_PROTECT_BEGIN()
-                language = lang_natives->getTokenLanguage(g_env, NULL, g_engine, token);
-                CRASH_PROTECT_END("nativeGetTokenLanguage")
-            }
+            CRASH_PROTECT_BEGIN()
+            language = gboard_engine_token_language(engine, token);
+            CRASH_PROTECT_END("nativeGetTokenLanguage")
             bool join = has_token && language == 0 && prev_language == 0;
             prev_language = language;
 
@@ -496,7 +441,7 @@ int hmm_engine_get_segmented_pinyin(char *text, int max_bytes) {
             int length = (int)strlen(token_text);
             if (length > available) length = available;
             memcpy(text + written, token_text, (size_t)length);
-            jni_release_string(js);
+            free(token_text);
             written += length;
             text[written] = '\0';
             has_token = true;
@@ -505,84 +450,74 @@ int hmm_engine_get_segmented_pinyin(char *text, int max_bytes) {
     return written;
 }
 
-static void copy_token_text(char *dst, size_t max, jstring js) {
-    const char *src = js ? jni_get_string(js) : "";
+static void copy_token_text(char *dst, size_t max, const char *src) {
+    if (!src) src = "";
     size_t length = strlen(src);
     if (length >= max) length = max - 1;
     memcpy(dst, src, length);
     dst[length] = '\0';
-    jni_release_string(js);
 }
 
 int hmm_engine_get_corrected_candidate_reading(int index,
                                                HmmTokenReading *tokens,
                                                int max_tokens) {
-    JNI_LOCAL_FRAME();
-    const HmmUserDictNatives *natives = hmm_get_user_dict_natives();
-    if (!tokens || max_tokens < 1 || !g_engine || !g_isCandidateCorrected ||
-        !g_getTokenString || !natives || !natives->getCandidateTokenCount ||
-        !natives->getCandidateToken) {
-        return 0;
-    }
+    if (!tokens || max_tokens < 1 || !g_engine) return 0;
+    void *engine = (void *)(uintptr_t)g_engine;
 
-    volatile int filled = 0;
+    int filled = 0;
+    int count = 0;
     CRASH_PROTECT_BEGIN()
-    jint count = 0;
-    if (g_isCandidateCorrected(g_env, NULL, g_engine, (jint)index)) {
-        count = natives->getCandidateTokenCount(g_env, NULL, g_engine,
-                                                (jint)index);
+    if (gboard_engine_is_candidate_corrected(engine, index)) {
+        count = gboard_engine_candidate_token_count(engine, index);
     }
+    CRASH_PROTECT_END("corrected candidate reading")
     if (count > 0 && count <= max_tokens) {
         int i = 0;
         for (; i < count; i++) {
-            jlong token = natives->getCandidateToken(g_env, NULL, g_engine,
-                                                     (jint)index, (jint)i);
+            void *token = NULL;
+            CRASH_PROTECT_BEGIN()
+            token = gboard_engine_candidate_token(engine, index, i);
+            CRASH_PROTECT_END("nativeGetCandidateToken")
             if (!token) break;
             HmmTokenReading *reading = &tokens[i];
-            copy_token_text(reading->raw, sizeof(reading->raw),
-                            g_getTokenString(g_env, NULL, g_engine, token));
-            if (!reading->raw[0]) break;
-            if (g_getTokenNormalizedString) {
-                copy_token_text(reading->normalized,
-                                sizeof(reading->normalized),
-                                g_getTokenNormalizedString(g_env, NULL,
-                                                           g_engine, token));
-            } else {
-                reading->normalized[0] = '\0';
-            }
+            char *raw = NULL;
+            char *normalized = NULL;
+            CRASH_PROTECT_BEGIN()
+            raw = gboard_engine_token_string_dup(engine, token);
+            normalized = gboard_engine_token_normalized_string_dup(engine, token);
+            CRASH_PROTECT_END("nativeGetTokenString")
+            copy_token_text(reading->raw, sizeof(reading->raw), raw);
+            free(raw);
+            if (!reading->raw[0]) { free(normalized); break; }
+            copy_token_text(reading->normalized, sizeof(reading->normalized),
+                            normalized);
+            free(normalized);
             if (!reading->normalized[0]) {
                 memcpy(reading->normalized, reading->raw,
                        sizeof(reading->normalized));
             }
-            reading->language = natives->getTokenLanguage
-                ? natives->getTokenLanguage(g_env, NULL, g_engine, token)
-                : -1;
+            reading->language = gboard_engine_token_language(engine, token);
         }
-        if (i == count) filled = (int)count;
+        if (i == count) filled = count;
     }
-    CRASH_PROTECT_END("corrected candidate reading")
     return filled;
 }
 
 bool hmm_engine_select(int index) {
-    JNI_LOCAL_FRAME();
-    if (!g_selectCand || !g_engine) return false;
+    if (!g_engine) return false;
     if (s_converted_count >= MAX_CONVERTED_RANGES) return false;
     int start = 0, end = 0;
     bool has_range = false;
-    if (g_getCandRange) {
-        jobject range = NULL;
-        CRASH_PROTECT_BEGIN()
-        range = g_getCandRange(g_env, NULL, g_engine, (jint)index);
-        CRASH_PROTECT_END("nativeGetCandidateRange(select)")
-        if (range) {
-            jni_get_range(range, &start, &end);
-            has_range = end > start;
-        }
-    }
-    jboolean result = JNI_FALSE;
+    GboardRange range;
     CRASH_PROTECT_BEGIN()
-    result = g_selectCand(g_env, NULL, g_engine, (jint)index);
+    range = gboard_engine_range((void *)(uintptr_t)g_engine, index);
+    CRASH_PROTECT_END("nativeGetCandidateRange(select)")
+    start = range.start;
+    end = range.end;
+    has_range = end > start;
+    bool result = false;
+    CRASH_PROTECT_BEGIN()
+    result = gboard_engine_select((void *)(uintptr_t)g_engine, index);
     CRASH_PROTECT_END("nativeSelectCandidate")
     if (result && has_range) {
         s_converted[s_converted_count++] = (VertexRange){ start, end };
@@ -591,14 +526,12 @@ bool hmm_engine_select(int index) {
 }
 
 bool hmm_engine_delete_last_input(void) {
-    JNI_LOCAL_FRAME();
-    if (!g_deleteInput || !g_engine) return false;
+    if (!g_engine) return false;
     if (g_end_vertex <= candidate_start_vertex()) return false;
-    jobject range = jni_create_range(g_env, (int)g_end_vertex - 1,
-                                     (int)g_end_vertex);
-    jboolean result = JNI_FALSE;
+    GboardRange range = { g_end_vertex - 1, g_end_vertex };
+    bool result = false;
     CRASH_PROTECT_BEGIN()
-    result = g_deleteInput(g_env, NULL, g_engine, range);
+    result = gboard_engine_delete((void *)(uintptr_t)g_engine, range);
     CRASH_PROTECT_END("nativeDelete")
     if (!result) return false;
     g_end_vertex--;
@@ -624,15 +557,14 @@ int hmm_engine_get_converted_count(void) {
 }
 
 bool hmm_engine_unconvert_last(void) {
-    JNI_LOCAL_FRAME();
     if (s_converted_count == 0 || !g_unconvertSegments || !g_engine) {
         return false;
     }
     VertexRange last = s_converted[s_converted_count - 1];
-    jobject range = jni_create_range(g_env, last.start, last.end);
-    jboolean result = JNI_FALSE;
+    GboardRange range = { last.start, last.end };
+    bool result = false;
     CRASH_PROTECT_BEGIN()
-    result = g_unconvertSegments(g_env, NULL, g_engine, range);
+    result = gboard_engine_unconvert((void *)(uintptr_t)g_engine, range);
     CRASH_PROTECT_END("nativeUnconvertSegments")
     if (!result) return false;
     s_converted_count--;
@@ -640,16 +572,15 @@ bool hmm_engine_unconvert_last(void) {
 }
 
 void hmm_engine_reset(void) {
-    JNI_LOCAL_FRAME();
     s_input_generation++;
     g_end_vertex = 0;
     s_converted_count = 0;
     s_context_injected = false;
     s_context_end_vertex = 0;
     volatile bool reset_ok = false;
-    if (g_reset && g_engine) {
+    if (g_engine) {
         CRASH_PROTECT_BEGIN()
-        g_reset(g_env, NULL, g_engine);
+        gboard_engine_reset((void *)(uintptr_t)g_engine);
         reset_ok = true;
         CRASH_PROTECT_END("nativeReset")
     }

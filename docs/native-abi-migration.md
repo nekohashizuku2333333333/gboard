@@ -5,9 +5,10 @@
 「ELF 加载器 + JNI 兼容层」替换为原生方案的可执行迁移路径。
 
 > 结论先行：
-> 1. **JNI 兼容层可以去掉。** 引擎的 136 个注册 native 都是很薄的 JNI 封送，
->    真正的实现是 C++ 对象 + vtable。反编译已得到关键方法的 vtable 偏移和参数布局；
->    用直接 C++ ABI 调用即可替代 `jni_env.c` / `hmm_native.c` 的假 Java 对象。
+> 1. **JNI 热路径已经去掉。** 引擎的 136 个注册 native 都是很薄的 JNI 封送，
+>    真正的实现是 C++ 对象 + vtable。`GboardIME/engine/gboard_native_abi.h`
+>    已用直接 ABI 覆盖 append、fill、候选读取、选择、删除、预测和 reset；
+>    `hmm_candidates.c` 的热路径不再创建假 Java 对象。仓库 889 项测试通过。
 > 2. **ELF 加载器可以去掉。** 离线 ELF→Mach-O 转换已验证可被 dyld 加载，
 >    TPIDR 站点可在转换期改写，构造函数可按构建期探针白名单固化。
 > 3. **Phase 0 已完成。** 补齐 `__strchr_chk`、`__open_2`、`__read_chk`、
@@ -137,12 +138,14 @@ raw=0ce4bda0e5a5bd0000760ca70a0000001000000000000000
 
 - `GetCandidateCount`（vtable `+0x1d0`）与 JNI 路径一致（403）。
 - `GetCandidateRange`（`+0x220`）返回 `(0,5)`，8 字节结构可直接读取。
-- `GetCandidateString`（`+0x200`）的原始 24 字节以 `0c e4 bd a0 e5 a5 bd 00`
-  开头（`\f` + “你好”），说明字符串是 **Android libc++ 布局**；
-  直接按 macOS `std::string` 解释会得到错误的 `size()`。
-- 结论：**数值/布尔/Range 方法可以直接调用；字符串方法需要
-  `AndroidString` 适配器**（24 字节缓冲 + Android 布局读取 + 去掉 `0x0C` 标记），
-  `ScoredInput` 的字符串参数同样需要按 Android 布局编码。
+- `GetCandidateString`（`+0x200`）的原始 24 字节是 `0c e4 bd a0 e5 a5 bd 00 ...`。
+  `0x0c` 不是标记，而是 **短串长度字节**：`0x0c = 6 << 1`，数据从 +1 开始，
+  即 “你好”（6 字节）。直接按 macOS `std::string` 解释会得到错误的 `size()`。
+- 结论：**数值/布尔/Range 方法可以直接调用；字符串用
+  `AndroidString` 适配器**（偶数 byte0 = 短串，长度 `byte0 >> 1`，数据 `b+1`；
+  奇数 = 长串，长度在 +8，数据指针在 +16），`ScoredInput` 的字符串参数同样按此编码。
+- 字符串规则来自引擎自己的 JNI 转换 helper：`FUN_011ce908` 对短串读
+  `byte0 >> 1` / `b+1`，对长串读 `*(uint32_t*)(b+8)` / `*(char**)(b+16)`。
 
 ### 1.6 仓库现有 native 覆盖缺口
 
@@ -228,12 +231,31 @@ std::string gboard_candidate_string(GboardEngine* e, int index) {
 
 替换范围：
 
-- 删除 `jni_env.c` 的假对象/本地引用/`JNIEnv` 表；
-- 删除 `hmm_native.c` 的 `jni_find_registered_native_*`；
-- `hmm_engine.c` / `hmm_candidates.c` / `hmm_enroll.c` / `hmm_user_dict.c`
-  改为直接调用上述 API；
-- 保留 `android_stubs.c` / `linux_abi.c`，但它们只承担 **bionic 平台调用**
-  （`liblog`、属性、`gettid`、`__chk`、pthread 布局），不再模拟 Java 对象。
+**已实现（当前仓库，热路径）**
+
+- `GboardIME/engine/gboard_native_abi.h`：C 内联直接 ABI，覆盖
+  `append`（含 context token）、`fill`、`count`、`string`、`range`、
+  `select`、`select_range`、`delete`、`unconvert`、`predictions`、`reset`、
+  `segment/token` 读取、`separator`。
+- `hmm_candidates.c` 已无任何 JNI 调用：append、候选、segment/token、
+  context、separator、prediction、delete、select、reset 全部走 vtable；
+  不再创建 `ScoredInput`/`Range`/`String` 假对象，也没有 `JNI_LOCAL_FRAME`
+  的每次调用开销。
+- 直接填充/读取使用 `const GboardRange*`（value 传递会 crash，已实测）。
+- `./test.sh`：889 passed；`tests/test_native_abi.cpp`：直接
+  reset → append → fill → count/string/range 与 JNI 基线一致。
+
+**仍需 JNI 的部分**
+
+- `hmm_engine.c` 的 factory/engine 初始化、`DataManager`/`SettingManager`
+  与 `EnrollDataScheme`（Phase 1b，需直接 factory 构造和 protobuf 传入）；
+- `hmm_enroll.c` 的词典/设置 enroll（含 FileDescriptor 路径）；
+- `hmm_user_dict.c` 的 user-dict 数组/候选 token；
+- `hmm_native.c` 的注册表解析与 `jni_env.c` 本身。
+
+`hmm_candidates.c` 已与 JNI 解耦；剩余 JNI 只出现在初始化、enroll 和
+user-dict 路径，不影响逐键输入、候选、分段、预测和选择。Phase 1 全部完成后
+才能删除 `jni_env.c`。
 
 风险点（需要逐项验证）：
 
@@ -300,7 +322,9 @@ std::string gboard_candidate_string(GboardEngine* e, int index) {
 - `docs/decompiled/engine_internal_helpers.c` — factory/engine 构造与
   Range/String 辅助函数。
 - `docs/native_bridge_example.cpp` — 直接 vtable 桥的示意实现（非构建产物）。
-- `tests/test_native_abi.cpp` — 直接 vtable 探针；需要 APK 与词典包，手动运行。
+- `GboardIME/engine/gboard_native_abi.h` — **已接入**的直接 C ABI；
+  `hmm_candidates.c` 已无 JNI 调用。
+- `tests/test_native_abi.cpp` — 直接 vtable 探针：验证 append/fill/count/string/range；需要 APK 与词典包，手动运行。
 - 现有 `GboardIME/engine/android_stubs.c` 的 bionic stdio 导出修复
   （`stdin/stdout/stderr` 以 bionic 名称导出，`fixup_file` 指向
   `__stdinp/__stdoutp/__stderrp`）是 Phase 1 的前置小改动，未提交。
