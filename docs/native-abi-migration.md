@@ -284,6 +284,13 @@ user-dict 路径，不影响逐键输入、候选、分段、预测和选择。P
 接入后删除运行时 `elf_loader.c`，只保留构建期 `.ctorprobe` 生成器。
 剩下的 `libgboard_bionic.dylib` 只提供平台符号，不再有 JNI。
 
+**当前阻塞（18.5.9 实测）**：补齐 `_chk`/stdio 后重建 compat/shim，转换后的
+Mach-O 仍在第 4 个构造函数 `0x9cb4f0` abort；`__cxa_guard_acquire` 内部的
+`pthread_mutex_lock` 返回 22（EINVAL）。Mach-O 下该 guard 的静态 mutex
+在首次 lock 前 `+0/+8` 已经是 compat 指针，而 ELF 路径同一 vaddr 为 0。
+这指向 **初始化/重定位/构造函数顺序差异**，不是符号绑定或 `_chk` 缺符号；
+Phase 2 暂不接入，避免回归。
+
 ### Phase 3 — 可选：纯原生引擎
 
 如果目标是 **完全不依赖 Google 二进制**，才需要这一步：
