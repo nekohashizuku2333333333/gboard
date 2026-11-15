@@ -60,6 +60,7 @@ inline std::string to_utf8(const AndroidString& s) {
     if (s.b[0] & 1) {
         std::uint32_t len = *reinterpret_cast<const std::uint32_t*>(s.b + 8);
         const char* data = *reinterpret_cast<char* const*>(s.b + 16);
+        if (!data && len) return {};
         return std::string(data ? data : "", len);
     }
     return std::string(reinterpret_cast<const char*>(s.b + 1), s.b[0] >> 1);
@@ -127,9 +128,14 @@ bool select_candidate(Engine* e, int index) {
 std::string candidate_string(Engine* e, int index) {
     // Non-trivial return uses x8 sret; this and index are the explicit args.
     AndroidString raw = slot<AndroidString (*)(Engine*, int)>(e, 0x200)(e, index);
-    std::string s = to_utf8(raw);
-    android_string_clear(raw);
-    return s;
+    try {
+        std::string s = to_utf8(raw);
+        android_string_clear(raw);
+        return s;
+    } catch (...) {
+        android_string_clear(raw);
+        throw;
+    }
 }
 
 Range candidate_range(Engine* e, int index) {
@@ -144,9 +150,10 @@ bool select_range(Engine* e, const Range& r) {
     return slot<bool (*)(Engine*, const Range*)>(e, 0x90)(e, &r);
 }
 
-// Every engine string getter (0x100/0x128/0x148/0x200/0x288) returns an owned
-// AndroidString; pass it to android_string_clear after to_utf8, including on
-// the early-return/failure path. Token / prediction / segment methods follow
-// the same pattern; see docs/native_abi.tsv for the offset of each native.
+// Owned String getters: 0x100, 0x128, 0x138, 0x148, 0x178, 0x180, 0x1a8,
+// 0x200, 0x288. Each returns an owned AndroidString; pass it to
+// android_string_clear after to_utf8, including on the failure/exception path.
+// Token / prediction / segment methods follow the same pattern; see
+// docs/native_abi.tsv for the offset of each native.
 
 }  // namespace gboard

@@ -103,14 +103,18 @@ int main(int argc, char** argv) {
     for (int i = 0; i < long_n; i++) {
         if (std::strlen(long_buf[i]) > 22) {
             saw_long = true;
+            unsigned long before = gboard_abi_clear_count;
             char *copy = gboard_engine_string_dup(engine, i);
             if (!copy) return 13;
+            if (gboard_abi_clear_count != before + 1) { std::free(copy); return 15; }
+            if (std::strlen(copy) != std::strlen(long_buf[i]) ||
+                std::strcmp(copy, long_buf[i]) != 0) { std::free(copy); return 16; }
             std::free(copy);
         }
         std::free(long_buf[i]);
     }
     if (!saw_long) return 10;
-    if (gboard_abi_clear_count == 0) return 13;
+    if (gboard_abi_clear_count == 0) return 17;
 
     // Invalid candidate index must not produce a range.
     GboardRange bad = gboard_engine_range(engine, -1);

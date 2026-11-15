@@ -77,14 +77,14 @@ extern unsigned long gboard_abi_clear_count;
 // The engine's long strings are malloc-backed in this loader; free() matches
 // the engine's sized operator delete on this platform.
 static inline void gboard_string_clear(GboardString *s) {
-#ifdef GBOARD_ABI_TEST
-    gboard_abi_clear_count++;
-#endif
     if (s->b[0] & 1) {
         char *data = NULL;
         memcpy(&data, s->b + 16, sizeof(data));
         free(data);
         memset(s, 0, sizeof(*s));
+#ifdef GBOARD_ABI_TEST
+        gboard_abi_clear_count++;
+#endif
     }
 }
 

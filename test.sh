@@ -89,8 +89,12 @@ clang -g -O0 -DDEBUG=1 -o "$TEST_DIR/test_engine" \
     -IGboardIME -lpthread
 
 echo "Running test_engine..."
-"$TEST_DIR/test_engine" "$SO_PATH" "$PACK_PATH" 2>/dev/null
-ENGINE_RC=$?
+if ! "$TEST_DIR/test_engine" "$SO_PATH" "$PACK_PATH" \
+        2> "$PROBE_DIR/engine.err"; then
+    cat "$PROBE_DIR/engine.err"
+    echo "FAIL: test_engine"
+    exit 1
+fi
 
 echo ""
 echo "═══ Building test_native_abi (C++) ═══"
@@ -106,12 +110,12 @@ clang++ -std=c++17 -O1 -DGBOARD_ABI_TEST -IGboardIME -IGboardIME/engine \
 
 echo "Running test_native_abi..."
 if ! "$TEST_DIR/test_native_abi" "$SO_PATH" "$PACK_PATH" \
-        > "$PROBE_DIR/native_abi.log" 2>&1; then
-    cat "$PROBE_DIR/native_abi.log"
+        2> "$PROBE_DIR/native_abi.err"; then
+    cat "$PROBE_DIR/native_abi.err"
     echo "FAIL: test_native_abi"
     exit 1
 fi
-NATIVE_RC=0
+cat "$PROBE_DIR/native_abi.err"
 echo "PASS: test_native_abi"
 
 echo ""
@@ -135,9 +139,9 @@ swiftc -g -parse-as-library -o "$TEST_DIR/test_ime" \
     -DDEBUG
 
 echo "Running test_ime..."
-"$TEST_DIR/test_ime" "$SO_PATH" "$PACK_PATH" 2>/dev/null
-IME_RC=$?
-
-if [ $ENGINE_RC -ne 0 ] || [ $IME_RC -ne 0 ] || [ $NATIVE_RC -ne 0 ]; then
+if ! "$TEST_DIR/test_ime" "$SO_PATH" "$PACK_PATH" \
+        2> "$PROBE_DIR/ime.err"; then
+    cat "$PROBE_DIR/ime.err"
+    echo "FAIL: test_ime"
     exit 1
 fi

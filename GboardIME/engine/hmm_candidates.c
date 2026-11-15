@@ -194,7 +194,7 @@ static bool append_context(void) {
     CRASH_PROTECT_BEGIN()
     range = gboard_engine_decoding_range((void *)(uintptr_t)g_engine);
     CRASH_PROTECT_END("nativeGetDecodingRange(context)")
-    if (range.start < 0 && range.end < 0) {
+    if (range.start < 0 || range.end <= range.start) {
         LOGERR("context decoding range unavailable; continuing without context");
         if (g_engine) {
             CRASH_PROTECT_BEGIN()
@@ -202,26 +202,26 @@ static bool append_context(void) {
             CRASH_PROTECT_END("nativeReset(context range unavailable)")
         }
         g_end_vertex = 0;
+        s_context_end_vertex = 0;
         return true;
     }
     int start = range.start, end = range.end;
-    if (start < end || end < 0) {
-        bool selected = false;
-        CRASH_PROTECT_BEGIN()
-        selected = gboard_engine_select_range((void *)(uintptr_t)g_engine, range);
-        CRASH_PROTECT_END("nativeSelectRange(context)")
-        if (!selected) {
-            LOGERR("context range selection failed; continuing without context");
-            if (g_engine) {
-                CRASH_PROTECT_BEGIN()
-                gboard_engine_reset((void *)(uintptr_t)g_engine);
-                CRASH_PROTECT_END("nativeReset(context selection failure)")
-            }
-            g_end_vertex = 0;
-            return true;
+    bool selected = false;
+    CRASH_PROTECT_BEGIN()
+    selected = gboard_engine_select_range((void *)(uintptr_t)g_engine, range);
+    CRASH_PROTECT_END("nativeSelectRange(context)")
+    if (!selected) {
+        LOGERR("context range selection failed; continuing without context");
+        if (g_engine) {
+            CRASH_PROTECT_BEGIN()
+            gboard_engine_reset((void *)(uintptr_t)g_engine);
+            CRASH_PROTECT_END("nativeReset(context selection failure)")
         }
+        g_end_vertex = 0;
+        s_context_end_vertex = 0;
+        return true;
     }
-    s_context_end_vertex = end > 0 ? end : 0;
+    s_context_end_vertex = end;
     g_end_vertex = s_context_end_vertex;
     LOG("context selected: range=(%d,%d)", start, end);
     return true;
