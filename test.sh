@@ -93,6 +93,28 @@ echo "Running test_engine..."
 ENGINE_RC=$?
 
 echo ""
+echo "═══ Building test_native_abi (C++) ═══"
+NATIVE_OBJ="$PROBE_DIR/native_abi_obj"
+mkdir -p "$NATIVE_OBJ"
+for src in "${ENGINE_SRCS[@]}"; do
+    clang -O1 -IGboardIME -IGboardIME/engine -c "$src" \
+        -o "$NATIVE_OBJ/$(basename "$src" .c).o"
+done
+clang++ -std=c++17 -O1 -DGBOARD_ABI_TEST -IGboardIME -IGboardIME/engine \
+    -o "$TEST_DIR/test_native_abi" \
+    "$TEST_DIR/test_native_abi.cpp" "$NATIVE_OBJ"/*.o -lpthread
+
+echo "Running test_native_abi..."
+if ! "$TEST_DIR/test_native_abi" "$SO_PATH" "$PACK_PATH" \
+        > "$PROBE_DIR/native_abi.log" 2>&1; then
+    cat "$PROBE_DIR/native_abi.log"
+    echo "FAIL: test_native_abi"
+    exit 1
+fi
+NATIVE_RC=0
+echo "PASS: test_native_abi"
+
+echo ""
 echo "═══ Building test_ime (Swift) ═══"
 swiftc -g -parse-as-library -o "$TEST_DIR/test_ime" \
     "$TEST_DIR/test_ime.swift" \
@@ -116,6 +138,6 @@ echo "Running test_ime..."
 "$TEST_DIR/test_ime" "$SO_PATH" "$PACK_PATH" 2>/dev/null
 IME_RC=$?
 
-if [ $ENGINE_RC -ne 0 ] || [ $IME_RC -ne 0 ]; then
+if [ $ENGINE_RC -ne 0 ] || [ $IME_RC -ne 0 ] || [ $NATIVE_RC -ne 0 ]; then
     exit 1
 fi

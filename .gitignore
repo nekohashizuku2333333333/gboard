@@ -12,6 +12,7 @@ GboardIME/build/
 tests/test_engine
 tests/test_ime
 tests/test_linux_abi
+tests/test_native_abi
 
 # Xcode
 DerivedData/

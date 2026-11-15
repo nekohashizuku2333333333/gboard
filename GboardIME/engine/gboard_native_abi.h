@@ -18,8 +18,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__cplusplus)
+#define GBOARD_ALIGNAS(n) alignas(n)
+#define GBOARD_STATIC_ASSERT static_assert
+#else
+#define GBOARD_ALIGNAS(n) _Alignas(n)
+#define GBOARD_STATIC_ASSERT _Static_assert
+#endif
+
 typedef struct {
-    _Alignas(8) unsigned char b[24];
+    GBOARD_ALIGNAS(8) unsigned char b[24];
 } GboardString;
 
 typedef struct {
@@ -38,9 +46,9 @@ typedef struct {
     int32_t end;
 } GboardRange;
 
-_Static_assert(sizeof(GboardString) == 24, "Android string is 24 bytes");
-_Static_assert(sizeof(GboardScoredInput) == 32, "ScoredInput is 0x20 bytes");
-_Static_assert(sizeof(GboardVector) == 24, "libc++ vector is 24 bytes");
+GBOARD_STATIC_ASSERT(sizeof(GboardString) == 24, "Android string is 24 bytes");
+GBOARD_STATIC_ASSERT(sizeof(GboardScoredInput) == 32, "ScoredInput is 0x20 bytes");
+GBOARD_STATIC_ASSERT(sizeof(GboardVector) == 24, "libc++ vector is 24 bytes");
 
 static inline void *gboard_slot(void *object, size_t offset) {
     void **vptr = *(void ***)object;
@@ -62,52 +70,101 @@ static inline int gboard_string_set(GboardString *s, const char *utf8) {
     return 1;
 }
 
+#ifdef GBOARD_ABI_TEST
+extern unsigned long gboard_abi_clear_count;
+#endif
+
+// The engine's long strings are malloc-backed in this loader; free() matches
+// the engine's sized operator delete on this platform.
 static inline void gboard_string_clear(GboardString *s) {
-    if (s->b[0] & 1) free(*(char **)(s->b + 16));
+#ifdef GBOARD_ABI_TEST
+    gboard_abi_clear_count++;
+#endif
+    if (s->b[0] & 1) {
+        char *data = NULL;
+        memcpy(&data, s->b + 16, sizeof(data));
+        free(data);
+        memset(s, 0, sizeof(*s));
+    }
 }
 
 static inline char *gboard_string_dup(const GboardString *s) {
     size_t len;
     const char *data;
     if (s->b[0] & 1) {
-        len = *(const uint32_t *)(s->b + 8);
-        data = *(char *const *)(s->b + 16);
+        uint32_t long_len = 0;
+        char *long_data = NULL;
+        memcpy(&long_len, s->b + 8, sizeof(long_len));
+        memcpy(&long_data, s->b + 16, sizeof(long_data));
+        len = long_len;
+        data = long_data;
     } else {
         len = s->b[0] >> 1;
+        if (len > 22) len = 22;  /* corrupt/short-flag mismatch */
         data = (const char *)s->b + 1;
     }
-    char *out = malloc(len + 1);
+    if (!data && len) return NULL;
+    char *out = (char *)malloc(len + 1);
     if (!out) return NULL;
     if (len) memcpy(out, data, len);
     out[len] = '\0';
     return out;
 }
 
-static inline int gboard_engine_append(void *engine, const char *const *keys,
-                                       int count, int type) {
+static inline int gboard_engine_append_scored(void *engine,
+                                              const char *const *keys,
+                                              int count, int type, float score) {
     if (!engine || !keys || count <= 0) return 0;
-    GboardScoredInput *elems = calloc((size_t)count, sizeof(*elems));
+    GboardScoredInput *elems = (GboardScoredInput *)calloc((size_t)count, sizeof(*elems));
     if (!elems) return 0;
     int ok = 1;
     for (int i = 0; i < count; i++) {
-        if (!gboard_string_set(&elems[i].input, keys[i])) { ok = 0; break; }
-        elems[i].score = 1.0f;
+        if (!keys[i] || !gboard_string_set(&elems[i].input, keys[i])) {
+            ok = 0;
+            break;
+        }
+        elems[i].score = score;
     }
-    int result = 0;
+    if (count == 1) {
+        GboardScoredInput one;
+        if (!ok) {
+            for (int i = 0; i < count; i++) gboard_string_clear(&elems[i].input);
+            free(elems);
+            return 0;
+        }
+        one = elems[0];
+        free(elems);
+        GboardVector v = { &one, &one + 1, &one + 1 };
+        int (*fn)(void *, GboardVector *, int);
+        GBOARD_LOAD_FN(engine, 0x38, fn);
+        int result = fn(engine, &v, type);
+        gboard_string_clear(&one.input);
+        return result;
+    }
+    int result = -1;
     if (ok) {
         GboardVector v = { elems, elems + count, elems + count };
         int (*fn)(void *, GboardVector *, int);
         GBOARD_LOAD_FN(engine, 0x38, fn);
         result = fn(engine, &v, type);
+        for (GboardScoredInput *p = v.begin; p < v.end; p++)
+            gboard_string_clear(&p->input);
+        free(v.begin);
+        return result;
     }
     for (int i = 0; i < count; i++) gboard_string_clear(&elems[i].input);
     free(elems);
     return result;
 }
 
+static inline int gboard_engine_append(void *engine, const char *const *keys,
+                                       int count, int type) {
+    return gboard_engine_append_scored(engine, keys, count, type, 1.0f);
+}
+
 static inline int gboard_engine_append_one(void *engine, const char *key,
                                            int type) {
-    return gboard_engine_append(engine, &key, 1, type);
+    return gboard_engine_append_scored(engine, &key, 1, type, 1.0f);
 }
 
 static inline bool gboard_engine_fill(void *engine, GboardRange range) {
@@ -139,7 +196,9 @@ static inline char *gboard_engine_string_dup(void *engine, int index) {
     GboardString (*fn)(void *, int);
     GBOARD_LOAD_FN(engine, 0x200, fn);
     raw = fn(engine, index);
-    return gboard_string_dup(&raw);
+    char *out = gboard_string_dup(&raw);
+    gboard_string_clear(&raw);
+    return out;
 }
 
 static inline void gboard_engine_reset(void *engine) {
@@ -206,7 +265,9 @@ static inline char *gboard_engine_prediction_string_dup(void *engine, int index)
     GboardString (*fn)(void *, int);
     GBOARD_LOAD_FN(engine, 0x288, fn);
     raw = fn(engine, index);
-    return gboard_string_dup(&raw);
+    char *out = gboard_string_dup(&raw);
+    gboard_string_clear(&raw);
+    return out;
 }
 static inline int gboard_engine_segment_count(void *engine) {
     if (!engine) return 0;
@@ -244,7 +305,9 @@ static inline char *gboard_engine_segment_string_dup(void *engine, void *segment
     GboardString (*fn)(void *, void *);
     GBOARD_LOAD_FN(engine, 0x100, fn);
     raw = fn(engine, segment);
-    return gboard_string_dup(&raw);
+    char *out = gboard_string_dup(&raw);
+    gboard_string_clear(&raw);
+    return out;
 }
 
 static inline int gboard_engine_segment_token_count(void *engine, void *segment) {
@@ -277,7 +340,9 @@ static inline char *gboard_engine_token_string_dup(void *engine, void *token) {
     GboardString (*fn)(void *, void *);
     GBOARD_LOAD_FN(engine, 0x128, fn);
     raw = fn(engine, token);
-    return gboard_string_dup(&raw);
+    char *out = gboard_string_dup(&raw);
+    gboard_string_clear(&raw);
+    return out;
 }
 
 static inline char *gboard_engine_token_normalized_string_dup(void *engine,
@@ -288,7 +353,9 @@ static inline char *gboard_engine_token_normalized_string_dup(void *engine,
     GboardString (*fn)(void *, void *);
     GBOARD_LOAD_FN(engine, 0x148, fn);
     raw = fn(engine, token);
-    return gboard_string_dup(&raw);
+    char *out = gboard_string_dup(&raw);
+    gboard_string_clear(&raw);
+    return out;
 }
 
 static inline int gboard_engine_token_language(void *engine, void *token) {

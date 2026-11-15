@@ -1,16 +1,13 @@
-// Direct C++ vtable ABI probe for the Gboard HMM engine.
+// Direct C++ vtable ABI test for the Gboard HMM engine.
 //
-// Baseline: initialize through the existing loader/JNI and append "nihao".
-// Then reset, append the same keys through the engine's C++ vtable only, and
-// compare counts and candidate strings. This proves the pinyin hot path can
-// run without the JNI compat layer.
+// Phase 1 made append/fill/count/string/range/select/delete/prediction and
+// segment/token direct. This test uses gboard_native_abi.h for those calls and
+// checks the direct path against the C API (which is also direct now).
 //
-// String rule (from the engine's own JNI conversion helper):
-//   even byte0: short, len = byte0 >> 1, data = buf + 1
-//   odd  byte0: long,  len = *(uint32_t*)(buf + 8), data = *(char**)(buf + 16)
-//
-// Usage: test_native_abi <libintegrated_shared_object.so> <hmmoemdata/current>
-// Manual test: it needs the extracted APK and dictionary pack.
+// Covers: short and long candidate strings, direct reset/append/fill, invalid
+// candidate range, and the context/prediction path. The C API and the header
+// are both direct in this build, so count/string equality is an internal
+// consistency check, not an independent ABI oracle. Built by test.sh.
 
 #define _XOPEN_SOURCE 700
 #include <csignal>
@@ -19,73 +16,35 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
-#include <vector>
 #include <ucontext.h>
 #include <unistd.h>
 
 extern "C" {
 #include "hmm_engine.h"
-// The JNI-era candidate page uses this global for the fill range; a direct
-// bridge keeps the same state after Append returns the new end vertex.
 extern std::int32_t g_end_vertex;
 }
 
-template <class Fn>
-static Fn slot(void* object, std::uintptr_t offset) {
-    auto** vptr = *reinterpret_cast<void***>(object);
-    return *reinterpret_cast<Fn*>(reinterpret_cast<char*>(vptr) + offset);
-}
+#include "gboard_native_abi.h"
 
-struct AndroidString {
-    alignas(8) unsigned char b[24];
-    AndroidString() { std::memset(b, 0, sizeof(b)); }
-    ~AndroidString() {}
-};
-
-static AndroidString from_utf8(const std::string& s) {
-    AndroidString out;
-    if (s.size() <= 22) {
-        out.b[0] = static_cast<unsigned char>(s.size() << 1);  // short
-        std::memcpy(out.b + 1, s.data(), s.size());
-    } else {
-        // Long form is not needed for pinyin keys; leave it unsupported.
-        out.b[0] = 1;  // odd => long
-        *reinterpret_cast<std::uint32_t*>(out.b + 8) =
-            static_cast<std::uint32_t>(s.size());
-        char* data = static_cast<char*>(std::malloc(s.size() + 1));
-        std::memcpy(data, s.data(), s.size());
-        data[s.size()] = 0;
-        *reinterpret_cast<char**>(out.b + 16) = data;
-    }
-    return out;
-}
-
-static std::string to_utf8(const AndroidString& s) {
-    if (s.b[0] & 1) {
-        std::uint32_t len = *reinterpret_cast<const std::uint32_t*>(s.b + 8);
-        const char* data = *reinterpret_cast<char* const*>(s.b + 16);
-        return std::string(data ? data : "", len);
-    }
-    return std::string(reinterpret_cast<const char*>(s.b + 1), s.b[0] >> 1);
-}
-
-struct ScoredInput {
-    AndroidString input;  // 24 bytes
-    float score;          // + 0x18, 0x20 per element
-};
-
-static_assert(sizeof(ScoredInput) == 0x20, "ScoredInput must be 0x20 bytes");
-
-struct Range {
-    std::int32_t start;
-    std::int32_t end;
-};
+unsigned long gboard_abi_clear_count = 0;
 
 static void fault(int sig, siginfo_t* si, void* ctx) {
     auto* uc = static_cast<ucontext_t*>(ctx);
     std::fprintf(stderr, "FAULT sig=%d addr=%p pc=%p lr=%p\n", sig, si->si_addr,
-                 (void*)uc->uc_mcontext->__ss.__pc, (void*)uc->uc_mcontext->__ss.__lr);
+                 (void*)uc->uc_mcontext->__ss.__pc,
+                 (void*)uc->uc_mcontext->__ss.__lr);
     _exit(99);
+}
+
+static bool append_chars(void* engine, const char* text, int* end_vertex) {
+    int end = 0;
+    for (const char* p = text; *p; p++) {
+        char key[2] = { *p, '\0' };
+        end = gboard_engine_append_one(engine, key, 0);
+        if (end <= 0) return false;
+    }
+    *end_vertex = end;
+    return true;
 }
 
 int main(int argc, char** argv) {
@@ -96,46 +55,81 @@ int main(int argc, char** argv) {
 
     if (!hmm_engine_init(argv[1], argv[2])) return 1;
 
-    // Baseline through JNI.
+    // C API path (direct since Phase 1).
     if (!hmm_engine_append("nihao")) return 2;
-    char* base[1024] = {0};
-    int base_n = hmm_engine_get_candidates(base, 1024);
-    const std::string base0 = base_n > 0 ? base[0] : "";
-    std::fprintf(stderr, "baseline n=%d s0=%s\n", base_n, base0.c_str());
+    char* baseline[1024] = {0};
+    int baseline_n = hmm_engine_get_candidates(baseline, 1024);
+    if (baseline_n <= 0) return 3;
+    std::string baseline0 = baseline[0];
+    for (int i = 0; i < baseline_n; i++) std::free(baseline[i]);
 
-    // Reset, then append the same keys through the vtable only.
     void* engine = hmm_engine_native_handle();
-    if (!engine) return 3;
-    slot<void (*)(void*)>(engine, 0xa0)(engine);  // Reset
-    g_end_vertex = 0;
-    auto append = slot<int (*)(void*, std::vector<ScoredInput>*, int)>(engine, 0x38);
-    int end_vertex = 0;
-    for (const char* p = "nihao"; *p; p++) {
-        std::vector<ScoredInput> v;
-        ScoredInput in;
-        in.input = from_utf8(std::string(1, *p));
-        in.score = 1.0f;
-        v.push_back(in);
-        int r = append(engine, &v, 0);  // INPUT_TYPE_SOURCE_INPUT_UNIT
-        std::fprintf(stderr, "direct append '%c' -> %d\n", *p, r);
-        if (r <= 0) return 5;
-        end_vertex = r;
+    if (!engine) return 4;
+    int count = gboard_engine_count(engine);
+    GboardRange range0 = gboard_engine_range(engine, 0);
+    char* string0 = gboard_engine_string_dup(engine, 0);
+    if (count != baseline_n || !string0 || baseline0 != string0 ||
+        range0.start < 0 || range0.end < range0.start) {
+        std::free(string0);
+        return 5;
     }
+    std::free(string0);
 
+    // Direct reset then direct append/fill/read.
+    gboard_engine_reset(engine);
+    g_end_vertex = 0;
+    int end_vertex = 0;
+    if (!append_chars(engine, "nihao", &end_vertex)) return 6;
     g_end_vertex = end_vertex;
-    Range fill_range{0, end_vertex};
-    bool filled = slot<bool (*)(void*, const Range*)>(engine, 0x1c8)(engine, &fill_range);
-    std::fprintf(stderr, "direct fill -> %d\n", filled);
+    GboardRange fill_range = { 0, end_vertex };
+    if (!gboard_engine_fill(engine, fill_range)) return 7;
+    int direct_n = gboard_engine_count(engine);
+    char* direct_s = gboard_engine_string_dup(engine, 0);
+    GboardRange direct_r = gboard_engine_range(engine, 0);
+    if (direct_n != baseline_n || !direct_s || baseline0 != direct_s ||
+        direct_r.start < 0 || direct_r.end < direct_r.start) {
+        std::free(direct_s);
+        return 8;
+    }
+    std::free(direct_s);
 
-    int direct_n = slot<int (*)(void*)>(engine, 0x1d0)(engine);
-    Range range = slot<Range (*)(void*, int)>(engine, 0x220)(engine, 0);
-    AndroidString raw = slot<AndroidString (*)(void*, int)>(engine, 0x200)(engine, 0);
-    const std::string direct_s = to_utf8(raw);
+    // A >22-byte candidate exercises the Android long-string path and clear.
+    gboard_engine_reset(engine);
+    g_end_vertex = 0;
+    if (!hmm_engine_append("jintiantianqihenhaowomenyiqichuquwan")) return 9;
+    char* long_buf[2048] = {0};
+    int long_n = hmm_engine_get_candidates(long_buf, 2048);
+    bool saw_long = false;
+    for (int i = 0; i < long_n; i++) {
+        if (std::strlen(long_buf[i]) > 22) {
+            saw_long = true;
+            char *copy = gboard_engine_string_dup(engine, i);
+            if (!copy) return 13;
+            std::free(copy);
+        }
+        std::free(long_buf[i]);
+    }
+    if (!saw_long) return 10;
+    if (gboard_abi_clear_count == 0) return 13;
 
-    std::fprintf(stderr, "direct n=%d s0=%s range=(%d,%d) end=%d\n",
-                 direct_n, direct_s.c_str(), range.start, range.end, end_vertex);
-    bool ok = filled && base_n == direct_n && base0 == direct_s &&
-              range.start <= range.end;
-    for (int i = 0; i < base_n; i++) std::free(base[i]);
-    return ok ? 0 : 4;
+    // Invalid candidate index must not produce a range.
+    GboardRange bad = gboard_engine_range(engine, -1);
+    if (bad.start >= 0 || hmm_engine_get_candidate_consumed(-1) != -1) return 11;
+    // Invalid fill range must return false (the !ok guard itself is not
+    // reachable through the public API in this build).
+    GboardRange invalid_fill = { -1, -1 };
+    if (gboard_engine_fill(engine, invalid_fill)) return 12;
+
+    // Exercise the context/prediction direct path (score 0.0f append).
+    hmm_engine_set_context("你好");
+    char* predictions[16] = {0};
+    int prediction_n = hmm_engine_get_predictions(predictions, 16);
+    for (int i = 0; i < prediction_n; i++) std::free(predictions[i]);
+    if (prediction_n <= 0) return 14;
+
+    std::fprintf(stderr,
+                 "PASS baseline_n=%d direct_n=%d range=(%d,%d) long_n=%d pred=%d\n",
+                 baseline_n, direct_n, direct_r.start, direct_r.end, long_n,
+                 prediction_n);
+    return 0;
 }

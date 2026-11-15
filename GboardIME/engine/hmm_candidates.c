@@ -157,8 +157,9 @@ static bool append_context(void) {
         const char *key = token;
         int result = 0;
         CRASH_PROTECT_BEGIN()
-        result = gboard_engine_append((void *)(uintptr_t)g_engine, &key, 1,
-                                      INPUT_TYPE_TARGET_TOKEN);
+        /* Java hip: new ScoredInput(token, 0.0f) for TARGET_TOKEN. */
+        result = gboard_engine_append_scored((void *)(uintptr_t)g_engine, &key, 1,
+                                             INPUT_TYPE_TARGET_TOKEN, 0.0f);
         CRASH_PROTECT_END("nativeAppend(context)")
         if (result <= 0) {
             LOGERR("context append failed for '%s'; continuing without context",
@@ -258,19 +259,21 @@ int hmm_engine_get_candidates_page(char **candidates, int offset, int max_count)
     if (!g_engine || !candidates || offset < 0 || max_count < 1) return 0;
 
     int count = 0;
+    bool ok = false;
     GboardRange range = { candidate_start_vertex(), g_end_vertex };
     CRASH_PROTECT_BEGIN()
-    bool ok = gboard_engine_fill((void *)(uintptr_t)g_engine, range);
+    ok = gboard_engine_fill((void *)(uintptr_t)g_engine, range);
     LOGERR("fillCandidateList → %d", ok);
     CRASH_PROTECT_END("nativeFillCandidateList")
+    if (!ok) return 0;
     CRASH_PROTECT_BEGIN()
     count = gboard_engine_count((void *)(uintptr_t)g_engine);
     LOGERR("getCandidateCount → %d", count);
     CRASH_PROTECT_END("nativeGetCandidateCount")
 
     if (offset >= count) return 0;
-    int end = offset + max_count;
-    if (end > count) end = count;
+    int end = count;
+    if (max_count < count - offset) end = offset + max_count;
 
     int filled = 0;
     for (int i = offset; i < end; i++) {
@@ -341,10 +344,11 @@ int hmm_engine_get_predictions(char **candidates, int max_count) {
 
 int hmm_engine_get_candidate_consumed(int index) {
     if (!g_engine) return -1;
-    GboardRange range;
+    GboardRange range = { -1, -1 };
     CRASH_PROTECT_BEGIN()
     range = gboard_engine_range((void *)(uintptr_t)g_engine, index);
     CRASH_PROTECT_END("nativeGetCandidateRange")
+    if (range.start < 0 || range.end <= range.start) return -1;
     int start_v = range.start, end_v = range.end;
     LOG("getCandidateRange(%d) → start=%d end=%d (g_end_vertex=%d)", index, start_v, end_v, g_end_vertex);
     int consumed = end_v - s_context_end_vertex;
@@ -392,10 +396,11 @@ int hmm_engine_get_segmented_pinyin(char *text, int max_bytes) {
         CRASH_PROTECT_END("getSegment")
         if (!seg) continue;
 
-        GboardRange range;
+        GboardRange range = { -1, -1 };
         CRASH_PROTECT_BEGIN()
         range = gboard_engine_segment_range(engine, seg);
         CRASH_PROTECT_END("getSegmentRange")
+        if (range.start < 0 || range.end <= range.start) continue;
         int start_v = range.start, end_v = range.end;
         if (start_v < s_context_end_vertex) continue;
         if (start_v < candidate_start_vertex()) continue;
@@ -472,23 +477,17 @@ int hmm_engine_get_corrected_candidate_reading(int index,
     }
     CRASH_PROTECT_END("corrected candidate reading")
     if (count > 0 && count <= max_tokens) {
-        int i = 0;
+        volatile int i = 0;
+        CRASH_PROTECT_BEGIN()
         for (; i < count; i++) {
-            void *token = NULL;
-            CRASH_PROTECT_BEGIN()
-            token = gboard_engine_candidate_token(engine, index, i);
-            CRASH_PROTECT_END("nativeGetCandidateToken")
+            void *token = gboard_engine_candidate_token(engine, index, i);
             if (!token) break;
             HmmTokenReading *reading = &tokens[i];
-            char *raw = NULL;
-            char *normalized = NULL;
-            CRASH_PROTECT_BEGIN()
-            raw = gboard_engine_token_string_dup(engine, token);
-            normalized = gboard_engine_token_normalized_string_dup(engine, token);
-            CRASH_PROTECT_END("nativeGetTokenString")
+            char *raw = gboard_engine_token_string_dup(engine, token);
             copy_token_text(reading->raw, sizeof(reading->raw), raw);
             free(raw);
-            if (!reading->raw[0]) { free(normalized); break; }
+            if (!reading->raw[0]) break;
+            char *normalized = gboard_engine_token_normalized_string_dup(engine, token);
             copy_token_text(reading->normalized, sizeof(reading->normalized),
                             normalized);
             free(normalized);
@@ -498,6 +497,7 @@ int hmm_engine_get_corrected_candidate_reading(int index,
             }
             reading->language = gboard_engine_token_language(engine, token);
         }
+        CRASH_PROTECT_END("corrected candidate reading")
         if (i == count) filled = count;
     }
     return filled;
@@ -508,13 +508,13 @@ bool hmm_engine_select(int index) {
     if (s_converted_count >= MAX_CONVERTED_RANGES) return false;
     int start = 0, end = 0;
     bool has_range = false;
-    GboardRange range;
+    GboardRange range = { -1, -1 };
     CRASH_PROTECT_BEGIN()
     range = gboard_engine_range((void *)(uintptr_t)g_engine, index);
     CRASH_PROTECT_END("nativeGetCandidateRange(select)")
     start = range.start;
     end = range.end;
-    has_range = end > start;
+    has_range = start >= 0 && end > start;
     bool result = false;
     CRASH_PROTECT_BEGIN()
     result = gboard_engine_select((void *)(uintptr_t)g_engine, index);
@@ -557,9 +557,7 @@ int hmm_engine_get_converted_count(void) {
 }
 
 bool hmm_engine_unconvert_last(void) {
-    if (s_converted_count == 0 || !g_unconvertSegments || !g_engine) {
-        return false;
-    }
+    if (s_converted_count == 0 || !g_engine) return false;
     VertexRange last = s_converted[s_converted_count - 1];
     GboardRange range = { last.start, last.end };
     bool result = false;

@@ -12,6 +12,7 @@
 // The engine object is the same pointer returned by nativeCreateEngine's jlong.
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -33,15 +34,26 @@ inline AndroidString from_utf8(const std::string& s) {
         out.b[0] = static_cast<unsigned char>(s.size() << 1);
         std::memcpy(out.b + 1, s.data(), s.size());
     } else {
-        out.b[0] = 1;  // long
-        *reinterpret_cast<std::uint32_t*>(out.b + 8) =
-            static_cast<std::uint32_t>(s.size());
-        char* data = new char[s.size() + 1];
+        // Long layout: cap (odd) at +0, size at +8, data at +16.
+        std::uint64_t cap = (static_cast<std::uint64_t>(s.size()) + 1) | 1;
+        std::uint64_t size = s.size();
+        std::memcpy(out.b, &cap, sizeof(cap));
+        std::memcpy(out.b + 8, &size, sizeof(size));
+        char* data = static_cast<char*>(std::malloc(s.size() + 1));
         std::memcpy(data, s.data(), s.size());
         data[s.size()] = 0;
-        *reinterpret_cast<char**>(out.b + 16) = data;
+        std::memcpy(out.b + 16, &data, sizeof(data));
     }
     return out;
+}
+
+// Long strings own a heap buffer; free it after conversion.
+inline void android_string_clear(AndroidString& s) {
+    if (s.b[0] & 1) {
+        void* p = *reinterpret_cast<void**>(s.b + 16);
+        std::free(p);
+        std::memset(s.b, 0, sizeof(s.b));
+    }
 }
 
 inline std::string to_utf8(const AndroidString& s) {
@@ -94,6 +106,8 @@ void reset(Engine* e) {
 }
 
 int append(Engine* e, const ScoredInput* in, int n, int type) {
+    // `in` is owned by the caller. The vector below is a shallow copy of the
+    // 24-byte AndroidStrings; do not clear both `in` and `v` (double free).
     std::vector<ScoredInput> v(in, in + n);
     return slot<int (*)(Engine*, std::vector<ScoredInput>*, int)>(e, 0x38)(e, &v, type);
 }
@@ -113,7 +127,9 @@ bool select_candidate(Engine* e, int index) {
 std::string candidate_string(Engine* e, int index) {
     // Non-trivial return uses x8 sret; this and index are the explicit args.
     AndroidString raw = slot<AndroidString (*)(Engine*, int)>(e, 0x200)(e, index);
-    return to_utf8(raw);
+    std::string s = to_utf8(raw);
+    android_string_clear(raw);
+    return s;
 }
 
 Range candidate_range(Engine* e, int index) {
@@ -128,7 +144,9 @@ bool select_range(Engine* e, const Range& r) {
     return slot<bool (*)(Engine*, const Range*)>(e, 0x90)(e, &r);
 }
 
-// Token / prediction / segment methods follow the same pattern; see
-// docs/native_abi.tsv for the offset of each native.
+// Every engine string getter (0x100/0x128/0x148/0x200/0x288) returns an owned
+// AndroidString; pass it to android_string_clear after to_utf8, including on
+// the early-return/failure path. Token / prediction / segment methods follow
+// the same pattern; see docs/native_abi.tsv for the offset of each native.
 
 }  // namespace gboard
